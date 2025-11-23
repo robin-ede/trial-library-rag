@@ -48,6 +48,7 @@ A "Healthcare-Grade" Retrieval-Augmented Generation (RAG) system designed for on
 -   **Chunking Strategy**: Recursive character splitting with ~1000 characters and 200 overlap. This size is chosen to keep paragraphs mostly intact, which is crucial for maintaining context in clinical guidelines.
 -   **Strict Prompting**: The system prompt is designed to be strict about using only the provided context and citing sources (document name and page number) to minimize hallucinations, which is critical in healthcare.
 -   **Evaluation**: Ragas is used for evaluation, leveraging "LLM-as-a-judge" to measure faithfulness, answer relevancy, and context precision.
+-   **Hybrid Search**: Implemented using `EnsembleRetriever` combining BM25 (sparse) and ChromaDB (dense) for better retrieval coverage.
 
 ## Evaluation
 
@@ -60,12 +61,12 @@ This will generate synthetic questions from your data, run the RAG system, and c
 ## Limitations
 
 -   **PDF Parsing**: Currently uses `PyMuPDFLoader`. Complex layouts (tables, multi-column) might need more advanced parsing strategies.
--   **Retrieval**: Basic similarity search. Could be improved with hybrid search (keyword + vector) or metadata filtering.
+-   **Retrieval**: Uses Hybrid Search (BM25 + Vector) via EnsembleRetriever for improved accuracy.
 -   **No History Persistence**: Chat history is lost on page refresh.
 
 ## Future Improvements
 
--   Add hybrid search (BM25 + Dense).
+-   Explore RBF (Radial Basis Function) or RRF (Reciprocal Rank Fusion) for advanced result fusion.
 -   Implement metadata filtering (e.g., filter by cancer type).
 -   Improve PDF parsing for tables.
 -   Add user authentication and history persistence.

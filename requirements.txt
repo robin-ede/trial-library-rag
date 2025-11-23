@@ -10,3 +10,4 @@ python-dotenv
 openai
 datasets
 pandas
+rank_bm25

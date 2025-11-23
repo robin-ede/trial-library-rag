@@ -1,5 +1,5 @@
 import streamlit as st
-from src.retrieval import get_retriever
+from src.retrieval import get_ensemble_retriever
 from src.generation import get_rag_chain, format_docs
 
 st.set_page_config(page_title="Trial Library RAG", layout="wide")
@@ -13,7 +13,7 @@ st.title("Oncology Trial Library RAG Demo")
 # We might want to cache these resources
 @st.cache_resource
 def load_rag_components():
-    retriever = get_retriever(k=5)
+    retriever = get_ensemble_retriever(k=5)
     rag_chain = get_rag_chain(retriever)
     return retriever, rag_chain
 
