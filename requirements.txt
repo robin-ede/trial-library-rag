@@ -12,3 +12,4 @@ datasets
 pandas
 rank_bm25
 llama-cloud-services
+flashrank

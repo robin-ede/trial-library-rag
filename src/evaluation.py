@@ -11,7 +11,7 @@ from langchain_openai import OpenAIEmbeddings
 from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy, context_precision
 
-from src.retrieval import get_retriever
+from src.retrieval import get_advanced_retriever
 from src.generation import get_rag_chain
 
 load_dotenv()
@@ -68,7 +68,7 @@ def main():
         print("Vector store is empty. Please run ingestion.py first.")
         return
 
-    retriever = get_retriever(k=5)
+    retriever = get_advanced_retriever(k=5)
     rag_chain = get_rag_chain(retriever)
 
     sampled = sample_chunks(vectorstore, NUM_QUESTIONS)

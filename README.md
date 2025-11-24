@@ -45,10 +45,10 @@ A "Healthcare-Grade" Retrieval-Augmented Generation (RAG) system designed for on
 
 -   **OpenRouter**: Used as the LLM provider to access models like `gpt-4o-mini` and `text-embedding-3-small` in an OpenAI-compatible way.
 -   **ChromaDB**: Chosen for its simplicity, local persistence, and ease of integration with LangChain.
--   **Chunking Strategy**: **Markdown-Aware Splitting**. We use `MarkdownHeaderTextSplitter` to respect document structure (headers), followed by `RecursiveCharacterTextSplitter` for inner content. This preserves tables and semantic sections better than naive splitting.
--   **Strict Prompting**: The system prompt is designed to be strict about using only the provided context and citing sources (document name and page number) to minimize hallucinations, which is critical in healthcare.
+-   **Chunking Strategy**: **Markdown-Aware Splitting**. We use `MarkdownHeaderTextSplitter` to respect document structure (headers), followed by `RecursiveCharacterTextSplitter` for inner content. This preserves tables and semantic sections better than naive splitting, **at the cost of losing page number boundaries**.
+-   **Strict Prompting**: The system prompt is designed to be strict about using only the provided context and citing sources (document name) to minimize hallucinations, which is critical in healthcare.
 -   **Evaluation**: Ragas is used for evaluation, leveraging "LLM-as-a-judge" to measure faithfulness, answer relevancy, and context precision.
--   **Hybrid Search**: Implemented using `EnsembleRetriever` combining BM25 (sparse) and ChromaDB (dense) for better retrieval coverage.
+-   **Advanced Retrieval**: Implemented using a pipeline of **Hybrid Search** (BM25 + Vector), **Multi-Query Expansion** (for recall), and **Flashrank Re-ranking** (for precision).
 
 ## Evaluation
 
@@ -61,7 +61,8 @@ This will generate synthetic questions from your data, run the RAG system, and c
 ## Limitations
 
 -   **PDF Parsing**: Uses **LlamaParse (Agentic Mode)** with `gpt-4o-mini`. This handles complex clinical trial layouts, tables, and multi-column text significantly better than standard loaders.
--   **Retrieval**: Uses Hybrid Search (BM25 + Vector) via EnsembleRetriever for improved accuracy.
+-   **Retrieval**: Uses Advanced Retrieval (Ensemble + Multi-Query + Re-ranking) for improved accuracy.
+-   **No Page Numbers**: Due to the markdown-aware chunking strategy (which prioritizes table/section integrity), specific page numbers are not available for citations.
 -   **No History Persistence**: Chat history is lost on page refresh.
 
 ## Future Improvements

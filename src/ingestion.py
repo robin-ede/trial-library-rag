@@ -132,13 +132,52 @@ def split_docs(docs):
     ]
     markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
     
+    # Initialize LLM for metadata extraction
+    from langchain_openai import ChatOpenAI
+    from langchain_core.prompts import ChatPromptTemplate
+    import json
+    
+    llm = ChatOpenAI(
+        model="openai/gpt-4o-mini",
+        temperature=0,
+        base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1"),
+        api_key=os.getenv("OPENAI_API_KEY"),
+        model_kwargs={"response_format": {"type": "json_object"}}
+    )
+    
+    metadata_prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are an expert at analyzing clinical documents. Extract the following metadata from the text: 'cancer_type' (e.g. Breast, Lung, General), 'year' (YYYY), and 'doc_type' (Guideline, Trial, Report). Return JSON only."),
+        ("user", "Filename: {filename}\n\nText Preview: {text_preview}")
+    ])
+    
     md_header_splits = []
+    
+    # Cache metadata per file to avoid repeated API calls for chunks of the same file
+    file_metadata_cache = {}
+
     for doc in docs:
+        # Extract metadata if not already cached for this source
+        source = doc.metadata.get("source", "")
+        if source not in file_metadata_cache:
+            try:
+                # Use first 2000 chars for metadata extraction
+                text_preview = doc.page_content[:2000]
+                filename = os.path.basename(source)
+                chain = metadata_prompt | llm
+                response = chain.invoke({"filename": filename, "text_preview": text_preview})
+                metadata = json.loads(response.content)
+                file_metadata_cache[source] = metadata
+                print(f"Extracted metadata for {filename}: {metadata}")
+            except Exception as e:
+                print(f"Error extracting metadata for {source}: {e}")
+                file_metadata_cache[source] = {"cancer_type": "Unknown", "year": "Unknown", "doc_type": "Unknown"}
+        
         # Split the content of each document
         splits = markdown_splitter.split_text(doc.page_content)
-        # Preserve original metadata (e.g., source) and merge with header metadata
+        # Preserve original metadata (e.g., source) and merge with header metadata AND extracted metadata
         for split in splits:
             split.metadata.update(doc.metadata)
+            split.metadata.update(file_metadata_cache[source])
             md_header_splits.append(split)
 
     # 2. Recursively split within those header sections if they are still too large
