@@ -57,10 +57,16 @@ def load_pdfs(data_dir: str = "./data"):
     if files_to_parse:
         print(f"Parsing {len(files_to_parse)} new files with LlamaParse...")
         
-        # Initialize LlamaParse only if needed
+        # Initialize LlamaParse with advanced settings from demo
         parser = LlamaParse(
             api_key=os.getenv("LLAMA_CLOUD_API_KEY"),
             result_type="markdown",
+            parse_mode="parse_page_with_agent",
+            model="gpt-4o-mini",
+            high_res_ocr=True,
+            adaptive_long_table=True,
+            outlined_table_extraction=True,
+            output_tables_as_HTML=True,
             verbose=True,
             language="en",
             num_workers=4,
@@ -72,48 +78,78 @@ def load_pdfs(data_dir: str = "./data"):
             print(f"Error during parsing: {e}")
             return docs # Return what we have so far
 
-        # Check if result has 'pages' attribute (JobResult object)
-        if hasattr(result, "pages"):
-            for page in result.pages:
-                # Prefer markdown content
-                page_text = getattr(page, "md", "")
-                if not page_text:
-                    page_text = getattr(page, "text", "")
-                text_content += page_text + "\n\n"
-        # Fallback for other potential return types (e.g. list of documents)
-        elif isinstance(result, list):
-            for item in result:
-                text = getattr(item, "text", "")
-                if not text:
-                    text = getattr(item, "page_content", "")
-                text_content += text + "\n\n"
-        else:
-            # Try to get text directly
-            text_content = getattr(result, "text", "")
-            if not text_content:
-                    text_content = getattr(result, "page_content", "")
-            # If still empty, try 'md'
-            if not text_content:
-                    text_content = getattr(result, "md", "")
+        # LlamaParse returns a list of JobResult objects (one per file)
+        # We need to iterate through them and match them back to the files
+        # Note: parser.parse(files_to_parse) returns results in the same order as input
         
-        # Save to cache
-        with open(cache_path, "w", encoding="utf-8") as f:
-            f.write(text_content)
-        
-        metadata = {"source": pdf_path}
-        docs.append(Document(page_content=text_content, metadata=metadata))
+        for i, result in enumerate(results):
+            pdf_path = files_to_parse[i]
+            cache_path = os.path.join(cache_dir, f"{os.path.basename(pdf_path)}.md")
+            
+            text_content = ""
+
+            # Check if result has 'pages' attribute (JobResult object)
+            if hasattr(result, "pages"):
+                for page in result.pages:
+                    # Prefer markdown content
+                    page_text = getattr(page, "md", "")
+                    if not page_text:
+                        page_text = getattr(page, "text", "")
+                    text_content += page_text + "\n\n"
+            # Fallback for other potential return types (e.g. list of documents)
+            elif isinstance(result, list):
+                for item in result:
+                    text = getattr(item, "text", "")
+                    if not text:
+                        text = getattr(item, "page_content", "")
+                    text_content += text + "\n\n"
+            else:
+                # Try to get text directly
+                text_content = getattr(result, "text", "")
+                if not text_content:
+                        text_content = getattr(result, "page_content", "")
+                # If still empty, try 'md'
+                if not text_content:
+                        text_content = getattr(result, "md", "")
+            
+            # Save to cache
+            with open(cache_path, "w", encoding="utf-8") as f:
+                f.write(text_content)
+            
+            metadata = {"source": pdf_path}
+            docs.append(Document(page_content=text_content, metadata=metadata))
 
     return docs
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownHeaderTextSplitter
+
 def split_docs(docs):
-    # Markdown-aware splitting could be better, but RecursiveCharacterTextSplitter is robust
-    # We might want to increase chunk size since markdown preserves structure better
-    splitter = RecursiveCharacterTextSplitter(
+    # 1. Split by Markdown Headers first to preserve structure
+    headers_to_split_on = [
+        ("#", "Header 1"),
+        ("##", "Header 2"),
+        ("###", "Header 3"),
+    ]
+    markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+    
+    md_header_splits = []
+    for doc in docs:
+        # Split the content of each document
+        splits = markdown_splitter.split_text(doc.page_content)
+        # Preserve original metadata (e.g., source) and merge with header metadata
+        for split in splits:
+            split.metadata.update(doc.metadata)
+            md_header_splits.append(split)
+
+    # 2. Recursively split within those header sections if they are still too large
+    # We can use a slightly larger chunk size now that we have semantic boundaries
+    text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
         separators=["\n\n", "\n", " ", ""],
     )
-    return splitter.split_documents(docs)
+    
+    return text_splitter.split_documents(md_header_splits)
 
 def build_vectorstore(splits):
     embeddings = OpenAIEmbeddings(

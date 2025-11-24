@@ -7,3 +7,4 @@ chroma_db/
 .idea/
 .vscode/
 .claude/
+evaluation_results.csv
