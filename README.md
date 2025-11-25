@@ -29,6 +29,11 @@ A "Healthcare-Grade" Retrieval-Augmented Generation (RAG) system designed for on
 4.  **Add Data:**
     Place your oncology/clinical PDF documents in the `data/` directory.
 
+    Current dataset includes:
+    - `nscl.pdf` - NCCN Non-Small Cell Lung Cancer Guidelines
+    - `fda_guidance.pdf` - FDA Oncology Guidance Document
+    - `diversity_study.pdf` - Cancer Research Diversity Study
+
 5.  **Ingest Data:**
     Run the ingestion script to process PDFs and build the vector database.
     ```bash
@@ -43,12 +48,12 @@ A "Healthcare-Grade" Retrieval-Augmented Generation (RAG) system designed for on
 
 ## Design Decisions
 
--   **OpenRouter**: Used as the LLM provider to access models like `gpt-4o-mini` and `text-embedding-3-small` in an OpenAI-compatible way.
+-   **OpenRouter**: Used as the LLM provider to access models like `gpt-4o-mini` and `qwen/qwen3-embedding-8b` in an OpenAI-compatible way.
 -   **ChromaDB**: Chosen for its simplicity, local persistence, and ease of integration with LangChain.
 -   **Chunking Strategy**: **Markdown-Aware Splitting**. We use `MarkdownHeaderTextSplitter` to respect document structure (headers), followed by `RecursiveCharacterTextSplitter` for inner content. This preserves tables and semantic sections better than naive splitting, **at the cost of losing page number boundaries**.
 -   **Strict Prompting**: The system prompt is designed to be strict about using only the provided context and citing sources (document name) to minimize hallucinations, which is critical in healthcare.
--   **Evaluation**: Ragas is used for evaluation, leveraging "LLM-as-a-judge" to measure faithfulness, answer relevancy, and context precision.
--   **Advanced Retrieval**: Implemented using a pipeline of **Hybrid Search** (BM25 + Vector), **Multi-Query Expansion** (for recall), and **Flashrank Re-ranking** (for precision).
+-   **Evaluation**: Uses curated question-answer pairs with known ground truth for reliable measurement. Includes both Ragas metrics (faithfulness, answer relevancy, context precision) and custom domain-specific metrics (citation accuracy, retrieval recall).
+-   **Advanced Retrieval**: Implemented using a pipeline of **Hybrid Search** (BM25 + Vector) and **Multi-Query Expansion** (for improved recall).
 
 ## Evaluation
 
@@ -56,12 +61,19 @@ To run the evaluation pipeline:
 ```bash
 python -m src.evaluation
 ```
-This will generate synthetic questions from your data, run the RAG system, and compute metrics. Results will be saved to `evaluation_results.csv`.
+This runs a curated set of hand-crafted questions with known ground truth answers. Results are saved to `evaluation_results.csv`.
+
+The evaluation includes:
+- **Ragas Metrics**: faithfulness, answer_relevancy, context_precision
+- **Custom Metrics**: citation_accuracy, retrieval_recall, refusal_appropriateness, ground_truth_match
+
+To add more evaluation questions, edit `src/evaluation.py` and add entries to the `EVAL_QUESTIONS` list.
 
 ## Limitations
 
 -   **PDF Parsing**: Uses **LlamaParse (Agentic Mode)** with `gpt-4o-mini`. This handles complex clinical trial layouts, tables, and multi-column text significantly better than standard loaders.
--   **Retrieval**: Uses Advanced Retrieval (Ensemble + Multi-Query + Re-ranking) for improved accuracy.
+-   **Retrieval**: Uses Advanced Retrieval (Hybrid Search with BM25 + Vector, plus Multi-Query Expansion) for improved accuracy.
+-   **No Reranking**: Originally implemented reranking, but removed due to local model constraints and lack of OpenRouter support.
 -   **No Page Numbers**: Due to the markdown-aware chunking strategy (which prioritizes table/section integrity), specific page numbers are not available for citations.
 -   **No History Persistence**: Chat history is lost on page refresh.
 

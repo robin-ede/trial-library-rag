@@ -30,7 +30,15 @@ def format_docs(docs: List[Document]) -> str:
         except:
             pass
             
-        formatted.append(f"[{source}, page {page}]\n{d.page_content}")
+        # Handle images
+        images = d.metadata.get("images", [])
+        image_text = ""
+        if images:
+            # Just list the filenames for now
+            image_refs = ", ".join([os.path.basename(img) for img in images])
+            image_text = f"\n[Images: {image_refs}]"
+
+        formatted.append(f"[{source}, page {page}]{image_text}\n{d.page_content}")
     return "\n\n".join(formatted)
 
 def get_rag_chain(retriever):

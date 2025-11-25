@@ -193,7 +193,7 @@ def split_docs(docs):
 def build_vectorstore(splits):
     embeddings = OpenAIEmbeddings(
         # OpenRouter model id for OpenAI embeddings
-        model="openai/text-embedding-3-small",
+        model="qwen/qwen3-embedding-8b",
         base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1"),
         api_key=os.getenv("OPENAI_API_KEY"),
     )

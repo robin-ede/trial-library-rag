@@ -8,3 +8,4 @@ chroma_db/
 .vscode/
 .claude/
 evaluation_results.csv
+artifacts/

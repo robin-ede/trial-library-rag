@@ -12,7 +12,7 @@ CHROMA_DIR = "./chroma_db"
 
 def get_vectorstore():
     embeddings = OpenAIEmbeddings(
-        model="openai/text-embedding-3-small",
+        model="qwen/qwen3-embedding-8b",
         base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1"),
         api_key=os.getenv("OPENAI_API_KEY"),
     )
@@ -39,17 +39,17 @@ def get_ensemble_retriever(k: int = 5, filter: dict = None):
     raw_docs = load_pdfs("./data")
     # Filter empty pages as in ingestion
     raw_docs = [d for d in raw_docs if d.page_content and len(d.page_content.strip()) > 10]
-    
+
     if not raw_docs:
         print("Warning: No documents found for BM25. Returning vector retriever only.")
         return get_retriever(k=k, filter=filter)
 
     splits = split_docs(raw_docs)
-    
+
     if not splits:
         print("Warning: No splits created for BM25. Returning vector retriever only.")
         return get_retriever(k=k, filter=filter)
-    
+
     try:
         bm25_retriever = get_bm25_retriever(splits, k=k)
     except Exception as e:
@@ -57,22 +57,26 @@ def get_ensemble_retriever(k: int = 5, filter: dict = None):
         return get_retriever(k=k, filter=filter)
 
     vector_retriever = get_retriever(k=k, filter=filter)
-    
+
     ensemble_retriever = EnsembleRetriever(
         retrievers=[bm25_retriever, vector_retriever],
         weights=[0.5, 0.5]
     )
     return ensemble_retriever
-from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
-from langchain_community.document_compressors.flashrank_rerank import FlashrankRerank
+
 from langchain_classic.retrievers.multi_query import MultiQueryRetriever
 from langchain_openai import ChatOpenAI
 
 def get_advanced_retriever(k: int = 5, filter: dict = None):
+    """
+    Advanced retriever using hybrid search (BM25 + Vector) with multi-query expansion.
+
+    Note: Previously included reranking, but removed due to local model constraints.
+    Future improvements: Add RRF fusion, contextual retrieval, self-RAG filtering.
+    """
     # 1. Base Retriever (Ensemble)
-    # Retrieve more candidates (e.g., 3x) to allow for re-ranking filtering
-    base_retriever = get_ensemble_retriever(k=k*3, filter=filter)
-    
+    base_retriever = get_ensemble_retriever(k=k, filter=filter)
+
     # 2. Multi-Query Expansion
     # Use the LLM to generate variations of the query
     llm = ChatOpenAI(
@@ -81,17 +85,10 @@ def get_advanced_retriever(k: int = 5, filter: dict = None):
         base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1"),
         api_key=os.getenv("OPENAI_API_KEY"),
     )
-    
+
     # MultiQueryRetriever generates variants, retrieves for each, and takes the union
     mq_retriever = MultiQueryRetriever.from_llm(
         retriever=base_retriever, llm=llm
     )
-    
-    # 3. Re-ranking
-    # Use Flashrank to re-score the retrieved documents
-    compressor = FlashrankRerank(top_n=k)
-    compression_retriever = ContextualCompressionRetriever(
-        base_compressor=compressor, base_retriever=mq_retriever
-    )
-    
-    return compression_retriever
+
+    return mq_retriever
