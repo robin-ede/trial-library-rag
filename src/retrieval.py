@@ -39,6 +39,8 @@ def get_ensemble_retriever(k: int = 5, filter: dict = None):
         # Retrieve all documents from Milvus by querying with a dummy query and large k
         # Note: This is a workaround since Milvus doesn't have a native "get all docs" method
         # For large collections, consider implementing pagination or a document cache
+        # Future: Upgrade to Milvus Standalone (Docker) for native sparse vector (BM25) support.
+        # Milvus Lite does NOT support native BM25 yet.
         docs = vectorstore.similarity_search("", k=10000)  # Fetch up to 10k chunks
 
         # Filter empty chunks
@@ -85,7 +87,7 @@ def get_advanced_retriever(k: int = 5, filter: dict = None):
     # Use the LLM to generate variations of the query
     llm = ChatOpenAI(
         model="openai/gpt-4o-mini",
-        temperature=0,
+        temperature=0.5,  # Increased to 0.5 to encourage diverse query variations
         base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1"),
         api_key=os.getenv("OPENAI_API_KEY"),
     )

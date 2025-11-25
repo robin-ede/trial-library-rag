@@ -10,3 +10,7 @@ chroma_db/
 .claude/
 evaluation_results.csv
 artifacts/
+
+# Milvus
+milvus_vectorstore.db
+.milvus_vectorstore.db.lock

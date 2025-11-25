@@ -69,6 +69,15 @@ The evaluation includes:
 
 To add more evaluation questions, edit `src/evaluation.py` and add entries to the `EVAL_QUESTIONS` list.
 
+## Testing
+
+Unit tests are available for the individual components (`src/retrieval.py` and `src/ingestion.py`). These tests mock external dependencies (Milvus, OpenAI) to ensure they are fast and reliable.
+
+To run the tests:
+```bash
+python -m pytest tests/
+```
+
 ## Limitations
 
 -   **PDF Parsing**: Uses **Docling** with DoclingLoader and HybridChunker. This handles complex clinical trial layouts, tables, and multi-column text with layout-aware parsing and tokenization-aware chunking.

@@ -78,6 +78,7 @@ def build_vectorstore(splits):
         embedding=embeddings,
         connection_args={"uri": MILVUS_URI},
         drop_old=True,  # Drop old collection if exists
+        auto_id=True
     )
     return vectorstore
 
