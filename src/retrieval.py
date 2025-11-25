@@ -1,14 +1,13 @@
 import os
-from langchain_chroma import Chroma
+from langchain_milvus import Milvus
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers.ensemble import EnsembleRetriever
 from dotenv import load_dotenv
-from src.ingestion import load_pdfs, split_docs
 
 load_dotenv()
 
-CHROMA_DIR = "./chroma_db"
+MILVUS_URI = "./milvus_vectorstore.db"
 
 def get_vectorstore():
     embeddings = OpenAIEmbeddings(
@@ -16,9 +15,9 @@ def get_vectorstore():
         base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1"),
         api_key=os.getenv("OPENAI_API_KEY"),
     )
-    vectorstore = Chroma(
+    vectorstore = Milvus(
         embedding_function=embeddings,
-        persist_directory=CHROMA_DIR,
+        connection_args={"uri": MILVUS_URI},
     )
     return vectorstore
 
@@ -33,25 +32,30 @@ def get_bm25_retriever(docs, k: int = 5):
     return BM25Retriever.from_documents(docs, k=k)
 
 def get_ensemble_retriever(k: int = 5, filter: dict = None):
-    # Load and split docs for BM25
-    # Note: In a production app, we might want to cache this or use a persistent store for BM25 too if possible,
-    # but BM25Retriever is typically in-memory.
-    raw_docs = load_pdfs("./data")
-    # Filter empty pages as in ingestion
-    raw_docs = [d for d in raw_docs if d.page_content and len(d.page_content.strip()) > 10]
+    # Fetch all documents from Milvus for BM25 (avoids re-processing PDFs)
+    vectorstore = get_vectorstore()
 
-    if not raw_docs:
-        print("Warning: No documents found for BM25. Returning vector retriever only.")
-        return get_retriever(k=k, filter=filter)
+    try:
+        # Retrieve all documents from Milvus by querying with a dummy query and large k
+        # Note: This is a workaround since Milvus doesn't have a native "get all docs" method
+        # For large collections, consider implementing pagination or a document cache
+        docs = vectorstore.similarity_search("", k=10000)  # Fetch up to 10k chunks
 
-    splits = split_docs(raw_docs)
+        # Filter empty chunks
+        docs = [d for d in docs if d.page_content and len(d.page_content.strip()) > 10]
 
-    if not splits:
-        print("Warning: No splits created for BM25. Returning vector retriever only.")
+        if not docs:
+            print("Warning: No documents found in Milvus for BM25. Returning vector retriever only.")
+            return get_retriever(k=k, filter=filter)
+
+        print(f"Loaded {len(docs)} chunks from Milvus for BM25")
+
+    except Exception as e:
+        print(f"Error fetching documents from Milvus for BM25: {e}. Returning vector retriever only.")
         return get_retriever(k=k, filter=filter)
 
     try:
-        bm25_retriever = get_bm25_retriever(splits, k=k)
+        bm25_retriever = get_bm25_retriever(docs, k=k)
     except Exception as e:
         print(f"Error initializing BM25Retriever: {e}. Returning vector retriever only.")
         return get_retriever(k=k, filter=filter)

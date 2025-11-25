@@ -42,42 +42,19 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    
-    # Filters
-    st.subheader("Filters")
-    cancer_type_filter = st.multiselect("Cancer Type", ["Breast", "Lung", "General", "Unknown"])
-    doc_type_filter = st.multiselect("Document Type", ["Guideline", "Trial", "Report", "Unknown"])
-    
-    filter_conditions = []
-    if cancer_type_filter:
-        filter_conditions.append({"cancer_type": {"$in": cancer_type_filter}})
-    if doc_type_filter:
-        filter_conditions.append({"doc_type": {"$in": doc_type_filter}})
-    
-    filter_dict = {}
-    if len(filter_conditions) == 1:
-        filter_dict = filter_conditions[0]
-    elif len(filter_conditions) > 1:
-        filter_dict = {"$and": filter_conditions}
-        
-    st.divider()
     if st.button("Clear Chat History"):
         st.session_state["messages"] = []
         st.rerun()
 
 # Initialize RAG components
-# We might want to cache these resources
 @st.cache_resource
-def load_rag_components(filter_dict=None):
-    retriever = get_advanced_retriever(k=5, filter=filter_dict)
+def load_rag_components():
+    retriever = get_advanced_retriever(k=5)
     rag_chain = get_rag_chain(retriever)
     return retriever, rag_chain
 
 try:
-    # Note: st.cache_resource with dict argument might be tricky if dict is not hashable (it is mutable).
-    # But Streamlit handles dicts in cache keys usually.
-    # To be safe, we can turn it into a tuple of items for caching if needed, but let's try direct first.
-    retriever, rag_chain = load_rag_components(filter_dict)
+    retriever, rag_chain = load_rag_components()
 except Exception as e:
     st.error(f"Failed to load RAG components. Make sure you have ingested data and set .env correctly. Error: {e}")
     st.stop()

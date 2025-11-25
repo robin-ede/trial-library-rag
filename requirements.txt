@@ -1,10 +1,11 @@
 langchain
 langchain-community
 langchain-openai
-langchain-chroma
+langchain-milvus
 langchain-docling
 pymupdf
-chromadb
+pymilvus
+milvus
 streamlit
 ragas
 python-dotenv
@@ -12,5 +13,6 @@ openai
 datasets
 pandas
 rank_bm25
-llama-cloud-services
 flashrank
+transformers
+sentence-transformers
