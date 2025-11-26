@@ -43,7 +43,14 @@ def format_docs(docs: List[Document]) -> str:
 
     return "\n\n".join(formatted)
 
-def get_rag_chain(retriever):
+def get_rag_chain():
+    """
+    Get RAG chain that accepts context and question directly.
+
+    This allows the app to retrieve docs once and reuse them for both
+    generation and source display, avoiding the issue where re-retrieving
+    with MultiQueryRetriever returns more docs than the LLM actually saw.
+    """
     llm = ChatOpenAI(
         model="openai/gpt-4o-mini",
         temperature=0,
@@ -58,39 +65,6 @@ def get_rag_chain(retriever):
         ]
     )
 
-    def retrieve_context(question: str):
-        docs = retriever.invoke(question)
-        return {
-            "context": format_docs(docs),
-            "question": question,
-            "raw_docs": docs,  # for introspection / UI
-        }
-
-    # We need to be careful with RunnablePassthrough here because we want to return the raw_docs as well.
-    # The standard chain usually just returns the string answer.
-    # Let's define a chain that returns the whole dict or object.
-    
-    # However, to keep it simple and compatible with the architecture doc:
-    # The architecture doc had:
-    # rag_chain = (
-    #     RunnablePassthrough()
-    #     | (lambda x: retrieve_context(x["question"]))
-    #     | prompt
-    #     | llm
-    # )
-    # This chain returns the LLM response (AIMessage).
-    # The retrieval happens inside the lambda.
-    # To get the docs out, we might need a slightly different structure or just re-retrieve in the app 
-    # (as suggested in the architecture doc: "Retrieve sources again for UI").
-    # I will stick to the architecture doc's suggestion of re-retrieving in the app for simplicity for now,
-    # or I can make the chain return a dict.
-    # Let's follow the architecture doc's pattern exactly for now to match the approved plan.
-    
-    rag_chain = (
-        RunnablePassthrough()
-        | (lambda x: retrieve_context(x["question"]))
-        | prompt
-        | llm
-    )
+    rag_chain = prompt | llm
 
     return rag_chain

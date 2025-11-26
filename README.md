@@ -26,6 +26,15 @@ A "Healthcare-Grade" Retrieval-Augmented Generation (RAG) system designed for on
     OPENAI_API_BASE=https://openrouter.ai/api/v1
     ```
 
+    **Optional - LangSmith for Observability:**
+    To enable cost/token tracking and LangSmith tracing, add:
+    ```bash
+    LANGCHAIN_TRACING_V2=true
+    LANGCHAIN_API_KEY=lsv2_pt_your-key-here
+    LANGCHAIN_PROJECT=trial-library-rag
+    ```
+    Sign up for free at [smith.langchain.com](https://smith.langchain.com)
+
 4.  **Add Data:**
     Place your oncology/clinical PDF documents in the `data/` directory.
 
@@ -54,6 +63,13 @@ A "Healthcare-Grade" Retrieval-Augmented Generation (RAG) system designed for on
 -   **Strict Prompting**: The system prompt is designed to be strict about using only the provided context and citing sources (document name) to minimize hallucinations, which is critical in healthcare.
 -   **Evaluation**: Uses curated question-answer pairs with known ground truth for reliable measurement. Includes both Ragas metrics (faithfulness, answer relevancy, context precision) and custom domain-specific metrics (citation accuracy, retrieval recall).
 -   **Advanced Retrieval**: Implemented using a pipeline of **Hybrid Search** (BM25 + Vector) and **Multi-Query Expansion** (for improved recall).
+-   **Observability**: Integrated LangSmith for comprehensive cost tracking:
+    - **LLM costs**: Tracked via `get_openai_callback()` for ChatOpenAI calls (gpt-4o-mini)
+    - **Embedding costs**: Estimated for OpenAIEmbeddings calls (qwen/qwen3-embedding-8b) based on query length
+    - **Per-query breakdown**: Shows LLM vs embedding costs separately
+    - **Session aggregates**: Cumulative costs, tokens, and timing in sidebar
+    - **LangSmith tracing**: Embedding calls now visible in LangSmith traces
+    - Critical for budget-conscious clinical trial operations where every API call counts.
 
 ## Evaluation
 
@@ -85,6 +101,7 @@ python -m pytest tests/
 -   **No Reranking**: Originally implemented reranking, but removed due to local model constraints and lack of OpenRouter support.
 -   **No Page Numbers**: Due to the markdown-aware chunking strategy (which prioritizes table/section integrity), specific page numbers are not available for citations.
 -   **No History Persistence**: Chat history is lost on page refresh.
+-   **Milvus Lite Single Connection**: Milvus Lite only supports one connection per database file. The app caches the retriever to avoid connection issues. Don't run evaluation while Streamlit is running.
 
 ## Future Improvements
 

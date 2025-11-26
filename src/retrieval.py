@@ -1,16 +1,17 @@
 import os
 from langchain_milvus import Milvus
-from langchain_openai import OpenAIEmbeddings
 from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers.ensemble import EnsembleRetriever
 from dotenv import load_dotenv
+from src.tracked_embeddings import TrackedOpenAIEmbeddings
 
 load_dotenv()
 
 MILVUS_URI = "./milvus_vectorstore.db"
 
+
 def get_vectorstore():
-    embeddings = OpenAIEmbeddings(
+    embeddings = TrackedOpenAIEmbeddings(
         model="qwen/qwen3-embedding-8b",
         base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1"),
         api_key=os.getenv("OPENAI_API_KEY"),
@@ -21,17 +22,17 @@ def get_vectorstore():
     )
     return vectorstore
 
-def get_retriever(k: int = 5, filter: dict = None):
+def get_retriever(k: int = 3, filter: dict = None):
     vectorstore = get_vectorstore()
     search_kwargs = {"k": k}
     if filter:
         search_kwargs["filter"] = filter
     return vectorstore.as_retriever(search_type="similarity", search_kwargs=search_kwargs)
 
-def get_bm25_retriever(docs, k: int = 5):
+def get_bm25_retriever(docs, k: int = 3):
     return BM25Retriever.from_documents(docs, k=k)
 
-def get_ensemble_retriever(k: int = 5, filter: dict = None):
+def get_ensemble_retriever(k: int = 3, filter: dict = None):
     # Fetch all documents from Milvus for BM25 (avoids re-processing PDFs)
     vectorstore = get_vectorstore()
 
@@ -73,7 +74,7 @@ def get_ensemble_retriever(k: int = 5, filter: dict = None):
 from langchain_classic.retrievers.multi_query import MultiQueryRetriever
 from langchain_openai import ChatOpenAI
 
-def get_advanced_retriever(k: int = 5, filter: dict = None):
+def get_advanced_retriever(k: int = 3, filter: dict = None):
     """
     Advanced retriever using hybrid search (BM25 + Vector) with multi-query expansion.
 

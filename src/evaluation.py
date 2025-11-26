@@ -12,13 +12,13 @@ from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
 from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy, context_precision
 
 from src.retrieval import get_advanced_retriever
-from src.generation import get_rag_chain
+from src.tracked_embeddings import TrackedOpenAIEmbeddings
+from src.generation import get_rag_chain, format_docs
 from src.custom_metrics import (
     citation_accuracy,
     retrieval_recall,
@@ -140,7 +140,7 @@ def run_evaluation(use_placeholders: bool = False):
         api_key=os.getenv("OPENAI_API_KEY"),
     )
 
-    embeddings = OpenAIEmbeddings(
+    embeddings = TrackedOpenAIEmbeddings(
         model="qwen/qwen3-embedding-8b",
         base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1"),
         api_key=os.getenv("OPENAI_API_KEY"),
@@ -156,7 +156,7 @@ def run_evaluation(use_placeholders: bool = False):
         return
 
     retriever = get_advanced_retriever(k=5)
-    rag_chain = get_rag_chain(retriever)
+    rag_chain = get_rag_chain()
 
     # Collect results
     questions = []
@@ -184,15 +184,7 @@ def run_evaluation(use_placeholders: bool = False):
         print(f"[{i}/{len(eval_set)}] {category} ({difficulty})")
         print(f"Q: {question[:80]}...")
 
-        # Run RAG
-        try:
-            result = rag_chain.invoke({"question": question})
-            answer = result.content if hasattr(result, "content") else str(result)
-        except Exception as e:
-            print(f"  ❌ Error generating answer: {e}")
-            answer = "Error during generation"
-
-        # Get retrieved docs
+        # Get retrieved docs first
         try:
             docs = retriever.invoke(question)
             ctxs = [d.page_content for d in docs]
@@ -200,6 +192,15 @@ def run_evaluation(use_placeholders: bool = False):
             print(f"  ❌ Error retrieving docs: {e}")
             docs = []
             ctxs = []
+
+        # Run RAG with retrieved context
+        try:
+            context = format_docs(docs) if docs else ""
+            result = rag_chain.invoke({"context": context, "question": question})
+            answer = result.content if hasattr(result, "content") else str(result)
+        except Exception as e:
+            print(f"  ❌ Error generating answer: {e}")
+            answer = "Error during generation"
 
         # Store for Ragas
         questions.append(question)

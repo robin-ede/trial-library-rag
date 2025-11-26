@@ -4,8 +4,8 @@ from langchain_docling.loader import ExportType
 from docling.chunking import HybridChunker
 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
 from langchain_milvus import Milvus
-from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
+from src.tracked_embeddings import TrackedOpenAIEmbeddings
 
 load_dotenv()
 
@@ -67,7 +67,7 @@ def load_pdfs(data_dir: str = "./data"):
 
 def build_vectorstore(splits):
     """Build Milvus vectorstore from document splits."""
-    embeddings = OpenAIEmbeddings(
+    embeddings = TrackedOpenAIEmbeddings(
         model="qwen/qwen3-embedding-8b",
         base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1"),
         api_key=os.getenv("OPENAI_API_KEY"),
