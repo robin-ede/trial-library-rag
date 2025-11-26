@@ -76,6 +76,50 @@ A "Healthcare-Grade" Retrieval-Augmented Generation (RAG) system designed for on
     - **LangSmith tracing**: Embedding calls now visible in LangSmith traces
     - Critical for budget-conscious clinical trial operations where every API call counts.
 
+## Logging and Observability
+
+The system includes production-grade structured logging for performance monitoring and debugging.
+
+### Log Configuration
+
+Logging is controlled via the `LOG_LEVEL` environment variable in `.env`:
+
+```bash
+# Show timing data and progress (default)
+LOG_LEVEL=INFO
+
+# Show detailed step-by-step execution
+LOG_LEVEL=DEBUG
+
+# Show only warnings and errors
+LOG_LEVEL=WARNING
+```
+
+### What Gets Logged
+
+**INFO Level (Default):**
+- Document ingestion progress and completion
+- Retrieval timing breakdowns (BM25, Vector, Ensemble, Multi-Query)
+- Embedding API call latency (single and batch)
+- Evaluation pipeline progress and results
+- Document counts at each retrieval stage
+
+**Example Output:**
+```
+14:32:15 - trial_library.retrieval - INFO - BM25 retrieval completed in 0.234s, retrieved 147 documents
+14:32:16 - trial_library.retrieval - INFO - Vector retrieval completed in 0.456s, retrieved 3 documents
+14:32:16 - trial_library.retrieval - INFO - Ensemble retrieval completed in 0.734s (BM25: 0.234s, Vector: 0.456s, Merge: 0.044s)
+```
+
+### Timing Instrumentation
+
+All critical operations are instrumented:
+- Milvus vector queries: Per-query latency + document count
+- BM25/Vector retrieval: Execution time + document count
+- Ensemble merging: Result deduplication time
+- Multi-Query expansion: Query generation + per-variation timing
+- Embedding API calls: Single query and batch latency
+
 ## Technologies: Familiar vs New
 
 Here is a breakdown of the technology stack based on my prior experience:
@@ -127,7 +171,7 @@ To run the tests:
 python -m pytest tests/
 ```
 
-## Limitations
+## Limitations (Known Issues)
 
 -   **PDF Parsing**: Uses **Docling** with DoclingLoader and HybridChunker. This handles complex clinical trial layouts, tables, and multi-column text with layout-aware parsing and tokenization-aware chunking.
 -   **Retrieval**: Uses Advanced Retrieval (Hybrid Search with BM25 + Vector, plus Multi-Query Expansion) for improved accuracy.
@@ -136,7 +180,7 @@ python -m pytest tests/
 -   **Limited History Persistence**: Conversation history works within a session (follow-up questions, pronoun resolution), but is lost on page refresh. No cross-session memory.
 -   **Milvus Lite Single Connection**: Milvus Lite only supports one connection per database file. The app caches the retriever to avoid connection issues. Don't run evaluation while Streamlit is running.
 
-## Future Improvements
+## Future Improvements (What I'd Change)
 
 -   **Reranking Step**: Implement a Cross-Encoder (e.g., zerank-2) to re-score retrieved chunks. This would directly address the low Context Precision (0.39) by filtering out irrelevant chunks before generation.
 -   **Agentic Workflow**: Move from a linear RAG chain to an agentic loop (e.g., LangGraph) that can decide to search again or ask clarifying questions if the initial retrieval is insufficient.

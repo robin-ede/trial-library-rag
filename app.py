@@ -9,6 +9,10 @@ load_dotenv()
 from langchain_community.callbacks import get_openai_callback
 from src.retrieval import get_advanced_retriever
 from src.generation import get_rag_chain, format_docs, rewrite_query_with_history
+from src.logging_config import setup_logging
+
+# Initialize logging
+setup_logging()
 
 st.set_page_config(page_title="Trial Library RAG", layout="wide")
 

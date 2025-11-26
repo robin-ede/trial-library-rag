@@ -1,6 +1,5 @@
 import os
-import time  # TEMPORARY DEBUG: for timing instrumentation
-import logging  # TEMPORARY DEBUG: for timing instrumentation
+import time
 from typing import List
 from langchain_milvus import Milvus
 from langchain_community.retrievers import BM25Retriever
@@ -10,15 +9,11 @@ from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from dotenv import load_dotenv
 from src.tracked_embeddings import TrackedOpenAIEmbeddings
+from src.logging_config import get_logger
 
 load_dotenv()
 
-# TEMPORARY DEBUG: Configure logging for timing instrumentation
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(message)s',
-    datefmt='%H:%M:%S'
-)
+logger = get_logger(__name__)
 
 MILVUS_URI = "./milvus_vectorstore.db"
 
@@ -34,14 +29,14 @@ def get_vectorstore():
         connection_args={"uri": MILVUS_URI},
     )
 
-    # TEMPORARY DEBUG: Monkey-patch similarity_search to add timing
+    # Monkey-patch similarity_search to add timing instrumentation
     original_search = vectorstore.similarity_search
 
     def timed_search(*args, **kwargs):
         start = time.perf_counter()
         result = original_search(*args, **kwargs)
         elapsed = time.perf_counter() - start
-        logging.info(f"💾 Milvus query: {elapsed:.3f}s ({len(result)} docs)")
+        logger.info(f"Milvus query completed in {elapsed:.3f}s, retrieved {len(result)} documents")
         return result
 
     vectorstore.similarity_search = timed_search
@@ -59,7 +54,6 @@ def get_bm25_retriever(docs, k: int = 3):
     return BM25Retriever.from_documents(docs, k=k)
 
 
-# TEMPORARY DEBUG: Timed wrapper for EnsembleRetriever
 class TimedEnsembleRetriever(BaseRetriever):
     """Wrapper around EnsembleRetriever that times BM25 vs Vector retrieval separately."""
 
@@ -74,24 +68,24 @@ class TimedEnsembleRetriever(BaseRetriever):
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun = None
     ) -> List[Document]:
         """Time each retriever separately and merge results."""
-        logging.info("🔄 Ensemble: Starting retrieval...")
+        logger.debug("Starting ensemble retrieval")
 
         # Time BM25 retrieval
-        logging.info("🔄 Ensemble: BM25 retrieval...")
+        logger.debug("BM25 retrieval starting")
         bm25_start = time.perf_counter()
         bm25_docs = self.bm25_retriever.invoke(query)
         bm25_elapsed = time.perf_counter() - bm25_start
-        logging.info(f"🔄 Ensemble: BM25 completed in {bm25_elapsed:.3f}s ({len(bm25_docs)} docs)")
+        logger.info(f"BM25 retrieval completed in {bm25_elapsed:.3f}s, retrieved {len(bm25_docs)} documents")
 
         # Time vector retrieval (includes embedding + Milvus)
-        logging.info("🔄 Ensemble: Vector retrieval...")
+        logger.debug("Vector retrieval starting")
         vector_start = time.perf_counter()
         vector_docs = self.vector_retriever.invoke(query)
         vector_elapsed = time.perf_counter() - vector_start
-        logging.info(f"🔄 Ensemble: Vector completed in {vector_elapsed:.3f}s ({len(vector_docs)} docs)")
+        logger.info(f"Vector retrieval completed in {vector_elapsed:.3f}s, retrieved {len(vector_docs)} documents")
 
         # Merge results (simplified - just combine and deduplicate)
-        logging.info("🔄 Ensemble: Merging results...")
+        logger.debug("Merging ensemble results")
         merge_start = time.perf_counter()
 
         # Weight and merge documents
@@ -117,10 +111,10 @@ class TimedEnsembleRetriever(BaseRetriever):
         result = [doc for doc, score in sorted_docs]
 
         merge_elapsed = time.perf_counter() - merge_start
-        logging.info(f"🔄 Ensemble: Merging completed in {merge_elapsed:.3f}s")
+        logger.debug(f"Ensemble merging completed in {merge_elapsed:.3f}s")
 
         total_elapsed = bm25_elapsed + vector_elapsed + merge_elapsed
-        logging.info(f"🔄 Ensemble: Total ensemble time: {total_elapsed:.3f}s")
+        logger.info(f"Ensemble retrieval completed in {total_elapsed:.3f}s (BM25: {bm25_elapsed:.3f}s, Vector: {vector_elapsed:.3f}s, Merge: {merge_elapsed:.3f}s)")
 
         return result
 
@@ -141,24 +135,26 @@ def get_ensemble_retriever(k: int = 3, filter: dict = None):
         docs = [d for d in docs if d.page_content and len(d.page_content.strip()) > 10]
 
         if not docs:
-            print("Warning: No documents found in Milvus for BM25. Returning vector retriever only.")
+            logger.warning("No documents found in Milvus for BM25, falling back to vector retriever only")
             return get_retriever(k=k, filter=filter)
 
-        print(f"Loaded {len(docs)} chunks from Milvus for BM25")
+        logger.info(f"Loaded {len(docs)} chunks from Milvus for BM25 retriever")
 
     except Exception as e:
-        print(f"Error fetching documents from Milvus for BM25: {e}. Returning vector retriever only.")
+        logger.error(f"Failed to fetch documents from Milvus for BM25: {e}", exc_info=True)
+        logger.warning("Falling back to vector retriever only")
         return get_retriever(k=k, filter=filter)
 
     try:
         bm25_retriever = get_bm25_retriever(docs, k=k)
     except Exception as e:
-        print(f"Error initializing BM25Retriever: {e}. Returning vector retriever only.")
+        logger.error(f"Failed to initialize BM25Retriever: {e}", exc_info=True)
+        logger.warning("Falling back to vector retriever only")
         return get_retriever(k=k, filter=filter)
 
     vector_retriever = get_retriever(k=k, filter=filter)
 
-    # TEMPORARY DEBUG: Use timed wrapper instead of regular EnsembleRetriever
+    # Use timed wrapper to instrument BM25 vs Vector retrieval performance
     # Note: Using construct() to bypass Pydantic validation for custom retriever types
     ensemble_retriever = TimedEnsembleRetriever.construct(
         bm25_retriever=bm25_retriever,
@@ -171,7 +167,6 @@ from langchain_classic.retrievers.multi_query import MultiQueryRetriever
 from langchain_openai import ChatOpenAI
 
 
-# TEMPORARY DEBUG: Timed wrapper for MultiQueryRetriever
 class TimedMultiQueryRetriever(BaseRetriever):
     """Wrapper around MultiQueryRetriever that times query generation and per-variation retrieval."""
 
@@ -185,7 +180,7 @@ class TimedMultiQueryRetriever(BaseRetriever):
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun = None
     ) -> List[Document]:
         """Time query generation and each variation's retrieval."""
-        logging.info("🔍 Multi-Query: Generating variations...")
+        logger.debug("Generating query variations for multi-query retrieval")
 
         # We need to manually generate queries to time them separately
         # The MultiQueryRetriever uses a prompt to generate variations
@@ -211,21 +206,21 @@ class TimedMultiQueryRetriever(BaseRetriever):
         # Parse query variations from response (default: don't include original)
         queries = [q.strip() for q in response.content.split('\n') if q.strip()]
 
-        logging.info(f"🔍 Multi-Query: Generated {len(queries)} variations in {gen_elapsed:.3f}s")
+        logger.info(f"Generated {len(queries)} query variations in {gen_elapsed:.3f}s")
 
         # Time each variation's retrieval
         all_docs = []
         total_retrieval_time = 0
 
         for i, var_query in enumerate(queries):
-            logging.info(f"🔍 Multi-Query: Processing variation {i+1}/{len(queries)}: \"{var_query[:50]}...\"")
+            logger.debug(f"Processing query variation {i+1}/{len(queries)}: \"{var_query[:50]}...\"")
 
             var_start = time.perf_counter()
             docs = self.base_retriever.invoke(var_query)
             var_elapsed = time.perf_counter() - var_start
             total_retrieval_time += var_elapsed
 
-            logging.info(f"🔍 Multi-Query: Variation {i+1}/{len(queries)} completed in {var_elapsed:.3f}s ({len(docs)} docs)")
+            logger.debug(f"Query variation {i+1}/{len(queries)} completed in {var_elapsed:.3f}s, retrieved {len(docs)} documents")
 
             all_docs.extend(docs)
 
@@ -239,8 +234,7 @@ class TimedMultiQueryRetriever(BaseRetriever):
                 unique_docs.append(doc)
 
         total_time = gen_elapsed + total_retrieval_time
-        logging.info(f"🔍 Multi-Query: All {len(queries)} variations completed in {total_time:.3f}s (gen: {gen_elapsed:.3f}s, retrieval: {total_retrieval_time:.3f}s)")
-        logging.info(f"🔍 Multi-Query: Returning {len(unique_docs)} unique documents")
+        logger.info(f"Multi-query retrieval completed in {total_time:.3f}s (generation: {gen_elapsed:.3f}s, retrieval: {total_retrieval_time:.3f}s), returning {len(unique_docs)} unique documents")
 
         return unique_docs
 
@@ -264,7 +258,7 @@ def get_advanced_retriever(k: int = 3, filter: dict = None):
         api_key=os.getenv("OPENAI_API_KEY"),
     )
 
-    # TEMPORARY DEBUG: Use timed wrapper instead of regular MultiQueryRetriever
+    # Use timed wrapper to instrument query generation and retrieval performance
     # Note: Using construct() to bypass Pydantic validation for custom retriever types
     mq_retriever = TimedMultiQueryRetriever.construct(
         base_retriever=base_retriever, llm=llm

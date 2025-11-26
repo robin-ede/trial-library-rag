@@ -12,13 +12,15 @@ Key Components:
 
 import threading
 import os
-import time  # TEMPORARY DEBUG: for timing instrumentation
-import logging  # TEMPORARY DEBUG: for timing instrumentation
+import time
 from typing import Dict, List, Any, ClassVar, Optional
 import httpx
 from langchain_openai import OpenAIEmbeddings
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class UsageCapturingHTTPClient(httpx.Client):
@@ -197,16 +199,16 @@ class TrackedOpenAIEmbeddings(OpenAIEmbeddings):
         Returns:
             List of floats representing the embedding vector
         """
-        # TEMPORARY DEBUG: Start timing
+        # Time embedding API call for performance monitoring
         start = time.perf_counter()
 
         # Make direct API call using parent's method
         # This ensures we stay within the @traceable context
         result = super().embed_query(text)
 
-        # TEMPORARY DEBUG: Log timing
+        # Log timing for performance monitoring
         elapsed = time.perf_counter() - start
-        logging.info(f"⚡ Embedding API call: {elapsed:.3f}s")
+        logger.info(f"Embedding API call completed in {elapsed:.3f}s")
 
         # Report usage while still in traced context
         # Pass the result so we can properly structure outputs
@@ -232,16 +234,16 @@ class TrackedOpenAIEmbeddings(OpenAIEmbeddings):
         Returns:
             List of embedding vectors (one per document)
         """
-        # TEMPORARY DEBUG: Start timing
+        # Time embedding API batch call for performance monitoring
         start = time.perf_counter()
 
         # Make direct API call using parent's method
         # This ensures we stay within the @traceable context
         result = super().embed_documents(texts)
 
-        # TEMPORARY DEBUG: Log timing
+        # Log timing for performance monitoring
         elapsed = time.perf_counter() - start
-        logging.info(f"⚡ Embedding API batch call ({len(texts)} docs): {elapsed:.3f}s")
+        logger.info(f"Embedding API batch call completed in {elapsed:.3f}s for {len(texts)} documents")
 
         # Report usage while still in traced context
         # Pass the result so we can properly structure outputs

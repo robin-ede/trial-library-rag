@@ -6,8 +6,11 @@ from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTok
 from langchain_milvus import Milvus
 from dotenv import load_dotenv
 from src.tracked_embeddings import TrackedOpenAIEmbeddings
+from src.logging_config import get_logger
 
 load_dotenv()
+
+logger = get_logger(__name__)
 
 # Configuration
 EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
@@ -30,17 +33,17 @@ def load_pdfs(data_dir: str = "./data"):
     """
     # Find all PDFs in the data directory
     if not os.path.exists(data_dir):
-        print(f"Data directory {data_dir} does not exist.")
+        logger.error(f"Data directory does not exist: {data_dir}")
         return []
 
     pdf_files = [os.path.join(data_dir, f) for f in os.listdir(data_dir)
                  if f.lower().endswith(".pdf")]
 
     if not pdf_files:
-        print("No PDF files found.")
+        logger.warning("No PDF files found in data directory")
         return []
 
-    print(f"\nProcessing {len(pdf_files)} PDFs with Docling...")
+    logger.info(f"Processing {len(pdf_files)} PDF files with Docling")
 
     # Configure HybridChunker with tokenizer
     tokenizer = HuggingFaceTokenizer.from_pretrained(
@@ -59,7 +62,7 @@ def load_pdfs(data_dir: str = "./data"):
     )
 
     docs = loader.load()
-    print(f"✓ Loaded {len(docs)} chunks from {len(pdf_files)} PDFs")
+    logger.info(f"Successfully loaded {len(docs)} chunks from {len(pdf_files)} PDF files")
     return docs
 
 
@@ -96,12 +99,14 @@ def ingest_docs():
     docs = load_pdfs("./data")
 
     if not docs:
-        print("No valid documents found to ingest.")
+        logger.warning("No valid documents found for ingestion")
         return None
 
     return build_vectorstore(docs)
 
 
 if __name__ == "__main__":
-    print("\nStarting ingestion with Docling...")
+    from src.logging_config import setup_logging
+    setup_logging()
+    logger.info("Starting document ingestion pipeline with Docling")
     ingest_docs()

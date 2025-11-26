@@ -9,14 +9,17 @@ import os
 import pandas as pd
 from typing import List, Dict
 from dotenv import load_dotenv
+from src.logging_config import get_logger
+
+# Initialize logger early to ensure env vars are set
+logger = get_logger(__name__)
 
 from langchain_openai import ChatOpenAI
-from langchain_chroma import Chroma
 from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy, context_precision
 
-from src.retrieval import get_advanced_retriever
+from src.retrieval import get_advanced_retriever, get_vectorstore
 from src.tracked_embeddings import TrackedOpenAIEmbeddings
 from src.generation import get_rag_chain, format_docs
 from src.custom_metrics import (
@@ -119,18 +122,18 @@ def run_evaluation(use_placeholders: bool = False):
     Args:
         use_placeholders: If False, skips placeholder questions (default: False)
     """
-    print("=" * 80)
-    print("RAG SYSTEM EVALUATION")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("RAG SYSTEM EVALUATION")
+    logger.info("=" * 80)
 
     # Filter out placeholders if requested
     eval_set = EVAL_QUESTIONS if use_placeholders else filter_placeholders(EVAL_QUESTIONS)
 
     if not eval_set:
-        print("\nNo questions to evaluate! Please fill in the placeholder questions first.")
+        logger.warning("No questions to evaluate! Please fill in the placeholder questions first.")
         return
 
-    print(f"\nEvaluating {len(eval_set)} curated questions...")
+    logger.info(f"Evaluating {len(eval_set)} curated questions...")
 
     # Initialize components
     llm = ChatOpenAI(
@@ -146,13 +149,19 @@ def run_evaluation(use_placeholders: bool = False):
         api_key=os.getenv("OPENAI_API_KEY"),
     )
 
-    vectorstore = Chroma(
-        embedding_function=embeddings,
-        persist_directory="./chroma_db",
-    )
+    vectorstore = get_vectorstore()
 
-    if not vectorstore._collection.count():
-        print("\n❌ Vector store is empty. Please run ingestion.py first.")
+    # Check if vectorstore is empty
+    # Milvus doesn't have a standard .count() in LangChain, so we try a dummy search
+    try:
+        # Try to fetch 1 document to check if collection exists and has data
+        dummy_res = vectorstore.similarity_search("test", k=1)
+        if not dummy_res:
+            logger.error("Vector store is empty. Please run ingestion.py first.")
+            return
+    except Exception:
+        # If collection doesn't exist or other error
+        logger.error("Vector store is empty or not initialized. Please run ingestion.py first.")
         return
 
     retriever = get_advanced_retriever(k=5)
@@ -172,7 +181,7 @@ def run_evaluation(use_placeholders: bool = False):
     refusal_scores = []
     ground_truth_match_scores = []
 
-    print("\nProcessing questions...\n")
+    logger.info("Processing questions...")
 
     for i, item in enumerate(eval_set, 1):
         question = item["question"]
@@ -181,25 +190,26 @@ def run_evaluation(use_placeholders: bool = False):
         category = item["category"]
         difficulty = item["difficulty"]
 
-        print(f"[{i}/{len(eval_set)}] {category} ({difficulty})")
-        print(f"Q: {question[:80]}...")
+        logger.info(f"[{i}/{len(eval_set)}] {category} ({difficulty})")
+        logger.debug(f"Q: {question[:80]}...")
 
         # Get retrieved docs first
         try:
             docs = retriever.invoke(question)
             ctxs = [d.page_content for d in docs]
         except Exception as e:
-            print(f"  ❌ Error retrieving docs: {e}")
+            logger.error(f"Error retrieving docs: {e}", exc_info=True)
             docs = []
             ctxs = []
 
         # Run RAG with retrieved context
         try:
             context = format_docs(docs) if docs else ""
-            result = rag_chain.invoke({"context": context, "question": question})
+            # Pass empty history for evaluation since these are single-turn questions
+            result = rag_chain.invoke({"context": context, "question": question, "history": ""})
             answer = result.content if hasattr(result, "content") else str(result)
         except Exception as e:
-            print(f"  ❌ Error generating answer: {e}")
+            logger.error(f"Error generating answer: {e}", exc_info=True)
             answer = "Error during generation"
 
         # Store for Ragas
@@ -222,9 +232,8 @@ def run_evaluation(use_placeholders: bool = False):
         ground_truth_match_scores.append(gt_match_score)
 
         # Print preview
-        print(f"  A: {answer[:100]}...")
-        print(f"  📊 Citation: {citation_score:.2f} | Recall: {recall_score:.2f} | GT Match: {gt_match_score:.2f}")
-        print()
+        logger.debug(f"A: {answer[:100]}...")
+        logger.info(f"Citation: {citation_score:.2f} | Recall: {recall_score:.2f} | GT Match: {gt_match_score:.2f}")
 
     # Create dataset for Ragas
     dataset = Dataset.from_dict(
@@ -236,9 +245,9 @@ def run_evaluation(use_placeholders: bool = False):
         }
     )
 
-    print("=" * 80)
-    print("Running Ragas evaluation...")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("Running Ragas evaluation...")
+    logger.info("=" * 80)
 
     try:
         ragas_results = evaluate(
@@ -247,9 +256,9 @@ def run_evaluation(use_placeholders: bool = False):
             llm=llm,
             embeddings=embeddings,
         )
-        print("\n✅ Ragas evaluation complete!")
+        logger.info("Ragas evaluation complete!")
     except Exception as e:
-        print(f"\n❌ Ragas evaluation failed: {e}")
+        logger.error(f"Ragas evaluation failed: {e}", exc_info=True)
         ragas_results = None
 
     # Combine results
@@ -277,26 +286,27 @@ def run_evaluation(use_placeholders: bool = False):
     # Save results
     output_file = "evaluation_results.csv"
     results_df.to_csv(output_file, index=False)
-    print(f"\n💾 Results saved to {output_file}")
+    results_df.to_csv(output_file, index=False)
+    logger.info(f"Results saved to {output_file}")
 
     # Print summary
-    print("\n" + "=" * 80)
-    print("EVALUATION SUMMARY")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("EVALUATION SUMMARY")
+    logger.info("=" * 80)
 
-    print("\n📊 CUSTOM METRICS (Averages):")
-    print(f"  Citation Accuracy:      {results_df['citation_accuracy'].mean():.3f}")
-    print(f"  Retrieval Recall:       {results_df['retrieval_recall'].mean():.3f}")
-    print(f"  Refusal Appropriate:    {results_df['refusal_appropriate'].mean():.3f}")
-    print(f"  Ground Truth Match:     {results_df['ground_truth_match'].mean():.3f}")
+    logger.info("CUSTOM METRICS (Averages):")
+    logger.info(f"  Citation Accuracy:      {results_df['citation_accuracy'].mean():.3f}")
+    logger.info(f"  Retrieval Recall:       {results_df['retrieval_recall'].mean():.3f}")
+    logger.info(f"  Refusal Appropriate:    {results_df['refusal_appropriate'].mean():.3f}")
+    logger.info(f"  Ground Truth Match:     {results_df['ground_truth_match'].mean():.3f}")
 
     if ragas_results is not None:
-        print("\n📊 RAGAS METRICS (Averages):")
-        print(f"  Faithfulness:           {results_df['faithfulness'].mean():.3f}")
-        print(f"  Answer Relevancy:       {results_df['answer_relevancy'].mean():.3f}")
-        print(f"  Context Precision:      {results_df['context_precision'].mean():.3f}")
+        logger.info("RAGAS METRICS (Averages):")
+        logger.info(f"  Faithfulness:           {results_df['faithfulness'].mean():.3f}")
+        logger.info(f"  Answer Relevancy:       {results_df['answer_relevancy'].mean():.3f}")
+        logger.info(f"  Context Precision:      {results_df['context_precision'].mean():.3f}")
 
-    print("\n📊 BY CATEGORY:")
+    logger.info("BY CATEGORY:")
     category_summary = results_df.groupby("category").agg(
         {
             "citation_accuracy": "mean",
@@ -304,9 +314,9 @@ def run_evaluation(use_placeholders: bool = False):
             "ground_truth_match": "mean",
         }
     )
-    print(category_summary.round(3))
+    logger.info(f"\n{category_summary.round(3)}")
 
-    print("\n📊 BY DIFFICULTY:")
+    logger.info("BY DIFFICULTY:")
     difficulty_summary = results_df.groupby("difficulty").agg(
         {
             "citation_accuracy": "mean",
@@ -314,16 +324,19 @@ def run_evaluation(use_placeholders: bool = False):
             "ground_truth_match": "mean",
         }
     )
-    print(difficulty_summary.round(3))
+    logger.info(f"\n{difficulty_summary.round(3)}")
 
-    print("\n" + "=" * 80)
-    print(f"✅ Evaluation complete! {len(eval_set)} questions processed.")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info(f"Evaluation complete! {len(eval_set)} questions processed.")
+    logger.info("=" * 80)
 
     return results_df
 
 
 if __name__ == "__main__":
+    from src.logging_config import setup_logging
+    setup_logging()
+
     # By default, skip placeholder questions
     # Set use_placeholders=True to include them (they will likely fail)
     results = run_evaluation(use_placeholders=False)
