@@ -71,6 +71,21 @@ A "Healthcare-Grade" Retrieval-Augmented Generation (RAG) system designed for on
     - **LangSmith tracing**: Embedding calls now visible in LangSmith traces
     - Critical for budget-conscious clinical trial operations where every API call counts.
 
+## Technologies: Familiar vs New
+
+Here is a breakdown of the technology stack based on my prior experience:
+
+-   **Familiar Technologies**:
+    -   **LangChain**: Used previously for basic chains, though this project required deeper usage of retrievers and custom chains.
+    -   **Streamlit**: Used for building simple data apps.
+    -   **OpenRouter**: Familiar with using it as an OpenAI-compatible API gateway.
+
+-   **New Technologies**:
+    -   **Milvus**: First time using Milvus (specifically Milvus Lite) for vector storage; previously used Chroma.
+    -   **Docling**: New to this tool for PDF parsing; found it very robust for complex layouts compared to standard PyPDF.
+    -   **Ragas**: First time implementing Ragas for automated RAG evaluation.
+    -   **LangSmith**: New to using this for deep observability and cost tracking.
+
 ## Evaluation
 
 To run the evaluation pipeline:
@@ -78,6 +93,19 @@ To run the evaluation pipeline:
 python -m src.evaluation
 ```
 This runs a curated set of hand-crafted questions with known ground truth answers. Results are saved to `evaluation_results.csv`.
+
+### Results Summary
+
+The system was evaluated on a set of clinical trial questions ranging from easy to hard. Here are the aggregate metrics from the latest run:
+
+| Metric | Score | Interpretation |
+| :--- | :--- | :--- |
+| **Retrieval Recall** | **1.00** | The system successfully retrieved the relevant information for 100% of the questions. Hybrid search + Query Expansion is highly effective. |
+| **Citation Accuracy** | **0.90** | The model correctly cited the source document 90% of the time, which is critical for clinical trust. |
+| **Faithfulness** | **0.87** | High faithfulness indicates the answers are derived directly from the retrieved context, minimizing hallucinations. |
+| **Answer Relevancy** | **0.74** | Answers are generally relevant to the user's query. |
+| **Context Precision** | **0.39** | Lower precision is an expected trade-off for our aggressive recall strategy (Multi-Query Expansion + Hybrid Search). We intentionally omitted a reranker step to avoid additional API costs and latency, accepting that some irrelevant chunks will be retrieved alongside the correct ones. |
+| **Ground Truth Match** | **0.46** | Exact string matching is low, which is expected for generative tasks. Semantic similarity (Answer Relevancy) is a better indicator of quality. |
 
 The evaluation includes:
 - **Ragas Metrics**: faithfulness, answer_relevancy, context_precision
@@ -105,6 +133,8 @@ python -m pytest tests/
 
 ## Future Improvements
 
--   Explore RBF (Radial Basis Function) or RRF (Reciprocal Rank Fusion) for advanced result fusion.
--   Improve PDF parsing for tables.
--   Add user authentication and history persistence.
+-   **Reranking Step**: Implement a Cross-Encoder (e.g., zerank-2) to re-score retrieved chunks. This would directly address the low Context Precision (0.39) by filtering out irrelevant chunks before generation.
+-   **Agentic Workflow**: Move from a linear RAG chain to an agentic loop (e.g., LangGraph) that can decide to search again or ask clarifying questions if the initial retrieval is insufficient.
+-   **Structured Output**: Use function calling to force the LLM to output structured data (e.g., JSON) for easier downstream processing.
+-   **User History**: Implement session persistence so users can ask follow-up questions.
+-   **Advanced Fusion**: Explore RBF (Radial Basis Function) or RRF (Reciprocal Rank Fusion) for more sophisticated result merging.
