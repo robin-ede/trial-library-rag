@@ -63,6 +63,11 @@ A "Healthcare-Grade" Retrieval-Augmented Generation (RAG) system designed for on
 -   **Strict Prompting**: The system prompt is designed to be strict about using only the provided context and citing sources (document name) to minimize hallucinations, which is critical in healthcare.
 -   **Evaluation**: Uses curated question-answer pairs with known ground truth for reliable measurement. Includes both Ragas metrics (faithfulness, answer relevancy, context precision) and custom domain-specific metrics (citation accuracy, retrieval recall).
 -   **Advanced Retrieval**: Implemented using a pipeline of **Hybrid Search** (BM25 + Vector) and **Multi-Query Expansion** (for improved recall).
+-   **Conversation History**: Implements query rewriting to handle follow-up questions by:
+    - Resolving pronouns (it, they, this, that) to specific entities from conversation history
+    - Rewriting follow-up questions as standalone queries for better retrieval
+    - Including last 3 conversation exchanges (6 messages) in generation context for coherent multi-turn dialogue
+    - Critical for clinical workflows where users explore complex topics through iterative questioning
 -   **Observability**: Integrated LangSmith for comprehensive cost tracking:
     - **LLM costs**: Tracked via `get_openai_callback()` for ChatOpenAI calls (gpt-4o-mini)
     - **Embedding costs**: Estimated for OpenAIEmbeddings calls (qwen/qwen3-embedding-8b) based on query length
@@ -128,7 +133,7 @@ python -m pytest tests/
 -   **Retrieval**: Uses Advanced Retrieval (Hybrid Search with BM25 + Vector, plus Multi-Query Expansion) for improved accuracy.
 -   **No Reranking**: Originally implemented reranking, but removed due to local model constraints and lack of OpenRouter support.
 -   **No Page Numbers**: Due to the markdown-aware chunking strategy (which prioritizes table/section integrity), specific page numbers are not available for citations.
--   **No History Persistence**: Chat history is lost on page refresh.
+-   **Limited History Persistence**: Conversation history works within a session (follow-up questions, pronoun resolution), but is lost on page refresh. No cross-session memory.
 -   **Milvus Lite Single Connection**: Milvus Lite only supports one connection per database file. The app caches the retriever to avoid connection issues. Don't run evaluation while Streamlit is running.
 
 ## Future Improvements
@@ -136,5 +141,5 @@ python -m pytest tests/
 -   **Reranking Step**: Implement a Cross-Encoder (e.g., zerank-2) to re-score retrieved chunks. This would directly address the low Context Precision (0.39) by filtering out irrelevant chunks before generation.
 -   **Agentic Workflow**: Move from a linear RAG chain to an agentic loop (e.g., LangGraph) that can decide to search again or ask clarifying questions if the initial retrieval is insufficient.
 -   **Structured Output**: Use function calling to force the LLM to output structured data (e.g., JSON) for easier downstream processing.
--   **User History**: Implement session persistence so users can ask follow-up questions.
+-   **Persistent Session History**: Implement cross-session persistence (database or file-based) so conversation history survives page refreshes and can be resumed later.
 -   **Advanced Fusion**: Explore RBF (Radial Basis Function) or RRF (Reciprocal Rank Fusion) for more sophisticated result merging.

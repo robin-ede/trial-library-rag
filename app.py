@@ -8,7 +8,7 @@ load_dotenv()
 
 from langchain_community.callbacks import get_openai_callback
 from src.retrieval import get_advanced_retriever
-from src.generation import get_rag_chain, format_docs
+from src.generation import get_rag_chain, format_docs, rewrite_query_with_history
 
 st.set_page_config(page_title="Trial Library RAG", layout="wide")
 
@@ -142,6 +142,14 @@ for msg in st.session_state["messages"]:
             label = f"View Sources ({num_sources} chunks)" if num_sources > 0 else "View Sources"
             with st.expander(label):
                 st.markdown(msg["sources"])
+        # Display metrics if available
+        if "metrics" in msg:
+            metrics = msg["metrics"]
+            st.caption(
+                f"⏱️ {metrics['total_time']:.2f}s (retrieval: {metrics['retrieval_time']:.2f}s) | "
+                f"📊 {metrics['llm_tokens']:,} LLM tokens | "
+                f"💰 ${metrics['llm_cost']:.5f} LLM cost"
+            )
 
 user_input = st.chat_input("Ask a question about these guidelines or trials")
 
@@ -166,12 +174,31 @@ if user_input:
                 query_start_time = time.time()
                 selected_sources = st.session_state["selected_sources"]
 
-                # Retrieve documents ONCE (before generation)
+                # Get conversation history (excluding current question)
+                chat_history = st.session_state["messages"][:-1]  # Exclude the just-added user message
+
+                # Rewrite query with conversation history for better retrieval
+                # Track the rewriting cost
+                rewrite_start = time.time()
+                with get_openai_callback() as rewrite_cb:
+                    rewritten_query = rewrite_query_with_history(user_input, chat_history)
+                rewrite_time = time.time() - rewrite_start
+
+                # Calculate rewrite cost (gpt-4o-mini pricing) - only if there was a rewrite
+                rewrite_tokens = rewrite_cb.total_tokens
+                if rewrite_tokens > 0:
+                    rewrite_input_tokens = getattr(rewrite_cb, 'prompt_tokens', int(rewrite_tokens * 0.8))
+                    rewrite_output_tokens = getattr(rewrite_cb, 'completion_tokens', rewrite_tokens - rewrite_input_tokens)
+                    rewrite_cost = (rewrite_input_tokens * 0.15 / 1_000_000) + (rewrite_output_tokens * 0.60 / 1_000_000)
+                else:
+                    rewrite_cost = 0.0
+
+                # Retrieve documents ONCE using rewritten query
                 # This ensures UI shows exactly what the LLM saw
                 # Use cached retriever to avoid Milvus Lite connection issues
                 retrieval_start = time.time()
                 try:
-                    docs = base_retriever.invoke(user_input)
+                    docs = base_retriever.invoke(rewritten_query)
                     retrieval_time = time.time() - retrieval_start
                 except Exception as e:
                     st.error(f"Retrieval error: {e}")
@@ -191,23 +218,35 @@ if user_input:
                     answer = "I could not find relevant information in the selected documents. Please try rephrasing your question or selecting different documents."
                     sources_text = "No sources found."
 
-                    # No LLM call when no docs found
-                    total_tokens = 0
-                    total_cost = 0.0
+                    # No LLM call when no docs found, but include rewrite cost
+                    total_tokens = rewrite_tokens
+                    total_cost = rewrite_cost
                     llm_tokens = 0
                     llm_cost = 0.0
                 else:
                     # Format context from retrieved docs
                     context = format_docs(docs)
 
+                    # Format conversation history for generation prompt
+                    # Include last 3 exchanges (6 messages) for context
+                    recent_history = chat_history[-6:] if len(chat_history) > 6 else chat_history
+                    if recent_history:
+                        history_text = "Conversation History:\n" + "\n".join([
+                            f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+                            for msg in recent_history
+                        ]) + "\n"
+                    else:
+                        history_text = ""
+
                     # Run RAG with streaming and callback tracking
                     stream_handler = st.empty()
                     full_response = ""
 
-                    # Use OpenAI callback to track token usage and cost
+                    # Use OpenAI callback to track token usage
                     with get_openai_callback() as cb:
-                        # Stream the LLM response
+                        # Stream the LLM response with conversation history
                         response_generator = rag_chain.stream({
+                            "history": history_text,
                             "context": context,
                             "question": user_input
                         })
@@ -220,13 +259,18 @@ if user_input:
                         stream_handler.markdown(full_response)
                         answer = full_response
 
-                        # Get LLM token and cost data from callback
+                        # Get LLM token data from callback
                         llm_tokens = cb.total_tokens
-                        llm_cost = cb.total_cost
 
-                        # Embedding costs tracked in LangSmith (via TrackedOpenAIEmbeddings)
-                        total_tokens = llm_tokens
-                        total_cost = llm_cost
+                        # Manual cost calculation for OpenRouter gpt-4o-mini
+                        # Pricing: $0.15/1M input tokens, $0.60/1M output tokens
+                        input_tokens = getattr(cb, 'prompt_tokens', int(llm_tokens * 0.8))
+                        output_tokens = getattr(cb, 'completion_tokens', llm_tokens - input_tokens)
+                        llm_cost = (input_tokens * 0.15 / 1_000_000) + (output_tokens * 0.60 / 1_000_000)
+
+                        # Include query rewriting cost in totals
+                        total_tokens = llm_tokens + rewrite_tokens
+                        total_cost = llm_cost + rewrite_cost
 
                     # Show sources (these are the ACTUAL docs the LLM saw)
                     sources_text = format_docs(docs)
@@ -242,23 +286,36 @@ if user_input:
                 st.session_state["session_stats"]["total_cost"] += total_cost
                 st.session_state["session_stats"]["total_time"] += total_time
 
-                # Show per-query metrics (embedding costs tracked in LangSmith)
+                # Show per-query metrics
                 st.caption(
                     f"⏱️ {total_time:.2f}s (retrieval: {retrieval_time:.2f}s) | "
                     f"📊 {llm_tokens:,} LLM tokens | "
-                    f"💰 ${llm_cost:.5f} LLM cost | "
-                    f"📌 Embedding costs tracked in LangSmith"
+                    f"💰 ${llm_cost:.5f} LLM cost"
                 )
 
             except Exception as e:
                 st.error(f"An error occurred during generation: {e}")
                 answer = "I apologize, but I encountered an error while processing your request."
                 sources_text = ""
+                # Set default values for metrics in case of error
+                total_time = 0.0
+                retrieval_time = 0.0
+                llm_tokens = 0
+                llm_cost = 0.0
 
     st.session_state["messages"].append(
         {
             "role": "assistant",
             "content": answer,
             "sources": sources_text,
+            "metrics": {
+                "total_time": total_time,
+                "retrieval_time": retrieval_time,
+                "llm_tokens": llm_tokens,
+                "llm_cost": llm_cost,
+            }
         }
     )
+
+    # Force rerun to display the message with metrics from history
+    st.rerun()
